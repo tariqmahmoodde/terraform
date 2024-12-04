@@ -13,6 +13,12 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v3
 
+      - name: Install Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+          pip install yq
+
       - name: Parse Atlantis Config
         id: parse
         run: |
@@ -26,7 +32,6 @@ jobs:
       matrix:
         project: ${{ fromJson(needs.parse-atlantis.outputs.projects) }}
     env:
-      TF_WORKSPACE: ${{ matrix.project.workspace || 'default' }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
@@ -42,6 +47,12 @@ jobs:
         working-directory: ${{ matrix.project.dir }}
         run: terraform init
 
+      - name: Select Workspace (If Specified)
+        if: ${{ matrix.project.workspace != null }}
+        working-directory: ${{ matrix.project.dir }}
+        run: |
+          terraform workspace select ${{ matrix.project.workspace }} || terraform workspace new ${{ matrix.project.workspace }}
+
       - name: Terraform Plan
         id: plan
         working-directory: ${{ matrix.project.dir }}
@@ -54,7 +65,7 @@ jobs:
       - name: Save Artifact
         uses: actions/upload-artifact@v3
         with:
-          name: "${{ matrix.project.workspace || 'default' }}-plan"
+          name: "${{ matrix.project.workspace || 'default' }}-${{ matrix.project.dir }}-plan"
           path: ${{ matrix.project.dir }}/tfplan
 
       - name: Comment Plan
@@ -63,7 +74,7 @@ jobs:
           token: ${{ secrets.HUB_TOKEN }}
           issue-number: ${{ github.event.pull_request.number }}
           body: |
-            Terraform Plan for `${{ matrix.project.workspace || 'default' }}`:
+            Terraform Plan for `Directory: ${{ matrix.project.dir }}` and `Workspace: ${{ matrix.project.workspace || 'default' }}`:
 
             ```
             ${{ steps.plan.outputs.plan }}
