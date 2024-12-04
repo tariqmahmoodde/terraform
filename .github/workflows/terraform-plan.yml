@@ -25,6 +25,7 @@ jobs:
         working-directory: ./
         shell: bash
         run: |
+          terraform plan -no-color -out=tfplan
           echo 'plan<<EOF' >> $GITHUB_OUTPUT
           terraform plan -no-color -out=tfplan >> $GITHUB_OUTPUT
           echo 'EOF' >> $GITHUB_OUTPUT
