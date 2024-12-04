@@ -7,47 +7,15 @@ on:
 jobs:
   rebase-and-apply:
     runs-on: ubuntu-latest
-
-    permissions:
-      issues: write
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
-
-      - name: Check for Rebase Conflicts
-        id: rebase
-        run: |
-          git fetch origin main
-          git rebase --quiet origin/main || exit 1
-
-      - name: Notify Rebase Conflict
-        if: failure()
-        uses: actions/github-script@v6
-        with:
-          token: ${{ secrets.HUB_TOKEN }}
-          script: |
-            github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: "Rebase conflict detected. Please resolve manually."
-            })
-
+        
       - name: Setup Terraform
-        if: success()
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.5.0
 
       - name: Terraform Apply
-        if: success()
-        working-directory: ${{ github.workspace }}/terraform
+        working-directory: ./
         run: terraform apply -auto-approve tfplan
-
-      - name: Merge the Branch
-        if: success()
-        run: |
-          git fetch origin main
-          git rebase origin/main
-          git push origin HEAD:main
