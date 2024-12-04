@@ -22,7 +22,7 @@ jobs:
 
       - name: Terraform Plan
         id: plan
-        working-directory: ${{ github.workspace }}/terraform
+        working-directory: ./
         shell: bash
         run: |
           echo 'plan<<EOF' >> $GITHUB_OUTPUT
@@ -34,7 +34,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: ${{ github.event.pull_request.number }}-tf-plan
-          path: ${{ github.workspace }}/terraform/tfplan
+          path: ./tfplan
 
       - name: Comment Plan
         id: comment-plan
