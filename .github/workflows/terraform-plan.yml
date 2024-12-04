@@ -22,7 +22,8 @@ jobs:
       - name: Parse Atlantis Config
         id: parse
         run: |
-          projects=$(yq -o json '.projects[] | {dir, workspace}' atlantis.yaml | jq -c -s '.')
+          # Use yq to parse the atlantis.yaml file and extract the necessary data
+          projects=$(yq eval '.projects[] | {dir, workspace}' atlantis.yaml | jq -c -s '.')
           echo "projects=$projects" >> $GITHUB_OUTPUT
 
   terraform-plan:
