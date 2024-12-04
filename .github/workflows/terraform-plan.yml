@@ -5,11 +5,29 @@ on:
       - main
 
 jobs:
-  terraform-plan:
+  parse-atlantis:
     runs-on: ubuntu-latest
+    outputs:
+      projects: ${{ steps.parse.outputs.projects }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Parse Atlantis Config
+        id: parse
+        run: |
+          projects=$(yq -o json '.projects[] | {dir, workspace}' atlantis.yaml | jq -c -s '.')
+          echo "projects=$projects" >> $GITHUB_OUTPUT
+
+  terraform-plan:
+    needs: parse-atlantis
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project: ${{ fromJson(needs.parse-atlantis.outputs.projects) }}
     env:
-      TF_WORKSPACE: "default"
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}  # AWS Access Key
+      TF_WORKSPACE: ${{ matrix.project.workspace || 'default' }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
       - name: Checkout Code
@@ -21,11 +39,12 @@ jobs:
           terraform_version: 1.5.0
 
       - name: Terraform Init
+        working-directory: ${{ matrix.project.dir }}
         run: terraform init
 
       - name: Terraform Plan
         id: plan
-        working-directory: ./
+        working-directory: ${{ matrix.project.dir }}
         shell: bash
         run: |
           echo 'plan<<EOF' >> $GITHUB_OUTPUT
@@ -33,20 +52,18 @@ jobs:
           echo 'EOF' >> $GITHUB_OUTPUT
 
       - name: Save Artifact
-        id: save-artifact
         uses: actions/upload-artifact@v3
         with:
-          name: ${{ github.event.pull_request.number }}-tf-plan
-          path: ./tfplan
+          name: "${{ matrix.project.workspace || 'default' }}-plan"
+          path: ${{ matrix.project.dir }}/tfplan
 
       - name: Comment Plan
-        id: comment-plan
         uses: peter-evans/create-or-update-comment@v2
         with:
           token: ${{ secrets.HUB_TOKEN }}
           issue-number: ${{ github.event.pull_request.number }}
           body: |
-            Terraform Plan:
+            Terraform Plan for `${{ matrix.project.workspace || 'default' }}`:
 
             ```
             ${{ steps.plan.outputs.plan }}
