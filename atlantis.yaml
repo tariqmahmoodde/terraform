@@ -1,0 +1,9 @@
+---
+version: 3
+
+projects:
+  - dir: resources
+    workspace: stg
+
+  - dir: resources
+    workspace: prod
