@@ -24,12 +24,14 @@ jobs:
         uses: actions/github-script@v6
         with:
           script: |
-            github.issues.createComment({
+            const { context, github } = require('@actions/github');
+            const issue_number = context.issue.number;
+            await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number,
+              issue_number: issue_number,
               body: "Rebase conflict detected. Please resolve manually."
-            })
+            });
 
       - name: Setup Terraform
         if: success()
