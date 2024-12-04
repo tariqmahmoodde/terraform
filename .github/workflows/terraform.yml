@@ -1,7 +1,4 @@
 on:
-  push:
-    branches:
-      - main
   pull_request:
     branches:
       - main
@@ -15,8 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TF_WORKSPACE: "default"
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}  # Your AWS Access Key
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}  # AWS Access Key
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}  # AWS Secret Access Key
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -27,9 +24,36 @@ jobs:
           terraform_version: ~1.0.0
           cli_config_credentials_token: ${{ secrets.TF_TOKEN }}
 
-      - uses: tchupp/actions-terraform-pr@v1
+      - name: Terraform Init
+        run: terraform init
 
-      - name: Terraform Apply
-        if: github.ref == 'refs/heads/main'
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -out=tfplan
+
+      - name: Post Terraform Plan as PR Comment
+        if: github.event.pull_request.draft == false
+        uses: peter-evans/commit-comment@v2
+        with:
+          body: |
+            ### Terraform Plan:
+            ```
+            ${{ steps.plan.outputs.stdout }}
+            ```
+
+      - name: Wait for PR Approval
+        if: github.event.pull_request.draft == false
+        uses: hmarr/auto-merge-action@v2
+        with:
+          merge-method: squash
+
+      - name: Terraform Apply (On approval)
+        if: github.event.pull_request.merged == true
+        run: terraform apply -auto-approve tfplan
+
+      - name: Rebase and Merge PR
+        if: github.event.pull_request.merged == true
         run: |
-          terraform apply -auto-approve
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
