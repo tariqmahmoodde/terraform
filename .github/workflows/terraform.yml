@@ -34,22 +34,26 @@ jobs:
         id: plan
         run: terraform plan -out=tfplan
 
-      - name: Post Terraform Plan as PR Comment
-        if: github.event.pull_request.draft == false
-        uses: peter-evans/commit-comment@v2
+      - name: Comment Plan
+        id: comment-plan
+        uses: peter-evans/create-or-update-comment@v2
         with:
+          token: ${{ secrets.HUB_TOKEN }}  # GitHub token to authenticate
+          issue-number: ${{ github.event.pull_request.number }}  # PR number
           body: |
             ### Terraform Plan:
             ```
             ${{ steps.plan.outputs.stdout }}
             ```
 
+            Plan saved to GH artifacts.
+
       - name: Automerge PR once approved
         if: github.event.pull_request.draft == false
         uses: pascalgn/automerge-action@v0.15.0
         with:
           merge-method: squash
-          github-token: ${{ secrets.GITHUB_TOKEN }}  # Uses GitHub token for merging
+          github-token: ${{ secrets.HUB_TOKEN }}  # Uses GitHub token for merging
 
       - name: Terraform Apply (On approval)
         if: github.event.pull_request.merged == true
