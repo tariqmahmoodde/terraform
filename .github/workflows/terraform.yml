@@ -41,11 +41,12 @@ jobs:
             ${{ steps.plan.outputs.stdout }}
             ```
 
-      - name: Wait for PR Approval
+      - name: Automerge PR once approved
         if: github.event.pull_request.draft == false
-        uses: hmarr/auto-merge-action@v2
+        uses: pascalgn/automerge-action@v0.15.0
         with:
           merge-method: squash
+          github-token: ${{ secrets.GITHUB_TOKEN }}  # Uses GitHub token for merging
 
       - name: Terraform Apply (On approval)
         if: github.event.pull_request.merged == true
