@@ -17,7 +17,7 @@ terraform {
 # Create a security group
 resource "aws_security_group" "example" {
   name        = "terra-security-group"
-  description = "Terraform security group"
+  description = "Terra security group"
   vpc_id      = var.vpc_id
 
   # Ingress rules
