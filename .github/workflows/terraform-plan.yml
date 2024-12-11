@@ -28,7 +28,7 @@ jobs:
           echo "---"
           echo "Parsing output:"
           # Convert to JSON array with both directory and workspace information
-          projects=$(yq eval -o=json '.projects | map({"dir": .dir, "workspace": .workspace})' atlantis.yaml)
+          projects=$(yq eval -o json '.projects' atlantis.yaml)
           echo "Parsed projects: $projects"
           # Escape the JSON string for GitHub Actions
           projects="${projects//'%'/'%25'}"
