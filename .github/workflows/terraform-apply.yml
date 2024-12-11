@@ -1,0 +1,116 @@
+name: Terraform Apply
+on:
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  check-conditions:
+    if: github.event.review.state == 'approved'
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.check.outputs.proceed }}
+    steps:
+      - name: Check PR Status
+        id: check
+        run: |
+          # Get PR details using GitHub API
+          PR_INFO=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}")
+          
+          # Check if PR has conflicts
+          MERGEABLE=$(echo "$PR_INFO" | jq -r '.mergeable')
+          
+          if [ "$MERGEABLE" = "true" ]; then
+            echo "proceed=true" >> $GITHUB_OUTPUT
+            echo "PR is approved and has no conflicts"
+          else
+            echo "proceed=false" >> $GITHUB_OUTPUT
+            echo "PR has conflicts or is not mergeable"
+            exit 1
+          fi
+
+  parse-atlantis:
+    needs: check-conditions
+    if: needs.check-conditions.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      projects: ${{ steps.parse.outputs.projects }}
+    steps:
+      - name: Checkout Current Branch
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Install Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+          pip install yq
+
+      - name: Parse Atlantis Config
+        id: parse
+        run: |
+          projects=$(yq '.projects' atlantis.yaml | jq -c '.')
+          echo "projects=$projects" >> $GITHUB_OUTPUT
+
+  terraform-apply:
+    needs: [check-conditions, parse-atlantis]
+    if: needs.check-conditions.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project: ${{ fromJson(needs.parse-atlantis.outputs.projects) }}
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    steps:
+      - name: Checkout Current Branch
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.0
+
+      - name: Download Plan File
+        uses: actions/download-artifact@v3
+        with:
+          name: tfplan-${{ matrix.project.dir }}-${{ matrix.project.workspace }}
+          path: ${{ matrix.project.dir }}
+
+      - name: Terraform Init
+        working-directory: ${{ matrix.project.dir }}
+        run: terraform init
+
+      - name: Select Workspace
+        if: ${{ matrix.project.workspace != null }}
+        working-directory: ${{ matrix.project.dir }}
+        run: |
+          terraform workspace select -or-create ${{ matrix.project.workspace }}
+
+      - name: Terraform Apply
+        id: apply
+        working-directory: ${{ matrix.project.dir }}
+        shell: bash
+        run: |
+          echo 'apply<<EOF' >> $GITHUB_OUTPUT
+          terraform apply -no-color -auto-approve tfplan 2>&1 >> $GITHUB_OUTPUT
+          echo 'EOF' >> $GITHUB_OUTPUT
+
+      - name: Comment Apply
+        uses: peter-evans/create-or-update-comment@v2
+        with:
+          token: ${{ secrets.HUB_TOKEN }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            Terraform Apply for `Directory: ${{ matrix.project.dir }}` and `Workspace: ${{ matrix.project.workspace || 'default' }}`:
+
+            ```
+            ${{ steps.apply.outputs.apply }}
+            ```
+
+            Apply completed.
