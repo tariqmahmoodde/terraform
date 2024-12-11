@@ -68,7 +68,7 @@ jobs:
           
           # Download and extract the artifact
           gh api \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Authorization: token ${{ secrets.HUB_TOKEN }}" \
             repos/${{ github.repository }}/actions/artifacts/${{ matrix.artifact.id }}/zip \
             > artifact.zip
           unzip artifact.zip -d ${{ matrix.artifact.workdir }}
