@@ -5,112 +5,64 @@ on:
     types: [submitted]
 
 jobs:
-  check-approval:
+  terraform-apply:
     if: github.event.review.state == 'approved'
     runs-on: ubuntu-latest
-    outputs:
-      artifacts: ${{ steps.get-artifacts.outputs.matrix }}
-    steps:
-      - name: Get Artifacts
-        id: get-artifacts
-        env:
-          GH_TOKEN: ${{ secrets.HUB_TOKEN }}
-        run: |
-          # Get PR details first
-          PR_NUMBER="${{ github.event.pull_request.number }}"
-          echo "PR Number: $PR_NUMBER"
-          
-          PR_SHA=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER --jq .head.sha)
-          echo "PR SHA: $PR_SHA"
-          
-          # Get the workflow run ID for the plan workflow
-          RUN_ID=$(gh api \
-            repos/${{ github.repository }}/actions/runs \
-            --jq '.workflow_runs[] | select(.head_sha == "'$PR_SHA'" and .name == "Terraform Plan" and .conclusion == "success") | .id' \
-            | head -n1)
-          
-          echo "Found workflow run ID: $RUN_ID"
-          
-          if [ -z "$RUN_ID" ]; then
-            echo "No successful Terraform Plan workflow run found"
-            exit 1
-          fi
-          
-          # Get artifacts from this specific run
-          ARTIFACTS=$(gh api \
-            repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts \
-            --jq '.artifacts[] | select(.name | endswith("-plan"))')
-          
-          # Create matrix JSON
-          MATRIX="["
-          echo "$ARTIFACTS" | while IFS= read -r artifact; do
-            if [ ! -z "$artifact" ]; then
-              name=$(echo "$artifact" | jq -r '.name')
-              id=$(echo "$artifact" | jq -r '.id')
-              
-              # Extract workspace and directory from artifact name (e.g., prod-resources-plan)
-              workspace=$(echo "$name" | cut -d'-' -f1)
-              workdir=$(echo "$name" | cut -d'-' -f2)
-              
-              if [ "$MATRIX" != "[" ]; then
-                MATRIX="$MATRIX,"
-              fi
-              MATRIX="$MATRIX{\"name\":\"$name\",\"id\":$id,\"workspace\":\"$workspace\",\"workdir\":\"$workdir\"}"
-            fi
-          done
-          MATRIX="$MATRIX]"
-          
-          echo "Matrix: $MATRIX"
-          echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
-
-  terraform-apply:
-    needs: check-approval
-    if: needs.check-approval.outputs.artifacts != '[]'
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        artifact: ${{ fromJson(needs.check-approval.outputs.artifacts) }}
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      GH_TOKEN: ${{ secrets.HUB_TOKEN }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.5.0
 
-      - name: Download Plan
+      - name: Get Changed Files
+        id: changed-files
+        uses: tj-actions/changed-files@v39
+        with:
+          files: |
+            **/*.tf
+            **/*.tfvars
+
+      - name: Terraform Init and Apply
+        if: steps.changed-files.outputs.any_changed == 'true'
         run: |
-          # Create directory for the plan
-          mkdir -p ${{ matrix.artifact.workdir }}
+          # Get unique directories containing changed files
+          DIRS=$(echo "${{ steps.changed-files.outputs.all_changed_files }}" | xargs -I {} dirname {} | sort -u)
           
-          # Download and extract the artifact
-          gh api \
-            repos/${{ github.repository }}/actions/artifacts/${{ matrix.artifact.id }}/zip \
-            > artifact.zip
-          unzip artifact.zip -d ${{ matrix.artifact.workdir }}
-          rm artifact.zip
+          for dir in $DIRS; do
+            echo "Processing directory: $dir"
+            cd $GITHUB_WORKSPACE/$dir
+            
+            # Initialize Terraform
+            terraform init
+            
+            # Get all workspaces
+            WORKSPACES=$(terraform workspace list | tr -d '* ' | grep -v 'default')
+            
+            # Add default workspace to the list
+            WORKSPACES="default $WORKSPACES"
+            
+            for workspace in $WORKSPACES; do
+              echo "Applying changes in workspace: $workspace"
+              if [ "$workspace" != "default" ]; then
+                terraform workspace select $workspace
+              fi
+              
+              # Run terraform apply
+              terraform apply -auto-approve
+            done
+            
+            cd $GITHUB_WORKSPACE
+          done
 
-      - name: Terraform Init
-        working-directory: ${{ matrix.artifact.workdir }}
-        run: terraform init
-
-      - name: Select Workspace
-        working-directory: ${{ matrix.artifact.workdir }}
-        run: terraform workspace select -or-create ${{ matrix.artifact.workspace }}
-
-      - name: Terraform Apply
-        id: apply
-        working-directory: ${{ matrix.artifact.workdir }}
-        run: |
-          echo "Applying plan for workspace ${{ matrix.artifact.workspace }} in directory ${{ matrix.artifact.workdir }}"
-          terraform apply -auto-approve tfplan
-
-      - name: Comment Apply Result
+      - name: Comment Result
         uses: peter-evans/create-or-update-comment@v2
         if: always()
         with:
@@ -118,6 +70,5 @@ jobs:
           issue-number: ${{ github.event.pull_request.number }}
           body: |
             ### Terraform Apply Result
-            - **Directory**: `${{ matrix.artifact.workdir }}`
-            - **Workspace**: `${{ matrix.artifact.workspace }}`
-            - **Status**: ${{ steps.apply.outcome == 'success' && ' Success' || ' Failed' }}
+            - **Status**: ${{ job.status == 'success' && ' Success' || ' Failed' }}
+            - **Details**: Changes have been applied to all affected workspaces.
