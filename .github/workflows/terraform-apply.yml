@@ -48,14 +48,13 @@ jobs:
             const planArtifacts = artifacts.data.artifacts
               .filter(a => a.name.endsWith('-plan'))
               .map(a => {
-                // Split name format: workspace-parentdir-dir-plan
                 const parts = a.name.split('-');
+                // Format: workspace-directory-plan (e.g., prod-edge-plan)
                 const workspace = parts[0];
-                // Join all middle parts as the directory path
-                const dir = parts.slice(1, -1).join('/');
+                const workdir = parts[1];
                 return { 
                   workspace: workspace,
-                  dir: dir,
+                  workdir: workdir,
                   artifact_name: a.name
                 };
               });
@@ -92,21 +91,20 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.dir }}
+          path: ${{ matrix.workdir }}
 
       - name: Terraform Init
-        working-directory: ${{ matrix.dir }}
+        working-directory: ${{ matrix.workdir }}
         run: terraform init
 
       - name: Select Workspace
-        if: ${{ matrix.workspace != 'default' }}
-        working-directory: ${{ matrix.dir }}
+        working-directory: ${{ matrix.workdir }}
         run: |
           terraform workspace select -or-create ${{ matrix.workspace }}
 
       - name: Terraform Apply
         id: apply
-        working-directory: ${{ matrix.dir }}
+        working-directory: ${{ matrix.workdir }}
         shell: bash
         run: |
           echo 'apply<<EOF' >> $GITHUB_OUTPUT
@@ -119,7 +117,7 @@ jobs:
           token: ${{ secrets.HUB_TOKEN }}
           issue-number: ${{ github.event.pull_request.number }}
           body: |
-            Terraform Apply for `Directory: ${{ matrix.dir }}` and `Workspace: ${{ matrix.workspace }}`:
+            Terraform Apply for `Directory: ${{ matrix.workdir }}` and `Workspace: ${{ matrix.workspace }}`:
 
             ```
             ${{ steps.apply.outputs.apply }}

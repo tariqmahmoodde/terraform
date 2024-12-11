@@ -73,7 +73,7 @@ jobs:
       - name: Save Artifact
         uses: actions/upload-artifact@v3
         with:
-          name: "${{ matrix.project.workspace || 'default' }}-${{ matrix.project.dir }}-plan"
+          name: "${{ matrix.project.workspace }}-${{ matrix.project.dir }}-plan"
           path: ${{ matrix.project.dir }}/tfplan
 
       - name: Comment Plan
