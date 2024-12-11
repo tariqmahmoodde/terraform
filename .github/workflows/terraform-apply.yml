@@ -60,7 +60,17 @@ jobs:
               repo: context.repo.repo
             });
             const planArtifacts = artifacts.data.artifacts
-              .filter(a => a.name.endsWith('-plan'));
+              .filter(a => a.name.endsWith('-plan'))
+              .map(a => {
+                const parts = a.name.split('-');
+                const workspace = parts[0];
+                const workdir = parts.slice(1, -1).join('-'); // Join remaining parts as workdir
+                return { 
+                  workspace: workspace,
+                  workdir: workdir,
+                  artifact_name: a.name
+                };
+              });
             return planArtifacts;
 
       - name: Set Matrix
