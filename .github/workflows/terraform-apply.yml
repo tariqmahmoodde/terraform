@@ -36,20 +36,35 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
+      - name: Get Last Successful Workflow Run
+        id: get-run
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const runs = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'terraform-plan.yml',
+              status: 'success'
+            });
+            const latestRun = runs.data.workflow_runs[0];
+            return latestRun.id;
+
       - name: Get Artifacts
         uses: actions/github-script@v6
         id: get-artifacts
         with:
           script: |
-            const artifacts = await github.rest.actions.listArtifactsForRepo({
+            const runId = '${{ steps.get-run.outputs.result }}';
+            const artifacts = await github.rest.actions.listArtifactsForWorkflowRun({
               owner: context.repo.owner,
-              repo: context.repo.repo
+              repo: context.repo.repo,
+              run_id: runId
             });
             const planArtifacts = artifacts.data.artifacts
               .filter(a => a.name.endsWith('-plan'))
               .map(a => {
                 const parts = a.name.split('-');
-                // Format: workspace-directory-plan (e.g., prod-edge-plan)
                 const workspace = parts[0];
                 const workdir = parts[1];
                 return { 
