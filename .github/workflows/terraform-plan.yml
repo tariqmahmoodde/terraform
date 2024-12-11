@@ -26,6 +26,9 @@ jobs:
           projects=$(yq -o=json '.projects[]' atlantis.yaml | jq -c -s '.')
           echo "Extracted projects: $projects"
           echo "projects=$projects" >> $GITHUB_OUTPUT
+      
+      - name: Debug Projects Output
+        run: echo "${{ steps.parse.outputs.projects }}"
 
   terraform-plan:
     needs: parse-atlantis
