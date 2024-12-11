@@ -7,7 +7,7 @@ provider "aws" {
 terraform {
   backend "s3" {
     bucket         = "terra1990" # Replace with your bucket name
-    key            = "security-group/terraform.tfstate"
+    key            = "security-group/terraformedge.tfstate"
     region         = "us-east-1"
     dynamodb_table = "terraform-lock"        # Replace with your table name
     encrypt        = true
