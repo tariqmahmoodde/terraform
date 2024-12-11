@@ -2,7 +2,7 @@ name: Terraform Apply on PR
 
 on:
   pull_request_review:
-    types: [submitted] # Trigger when a PR review is submitted
+    types: [submitted]
 
 jobs:
   get-artifacts:
@@ -16,20 +16,17 @@ jobs:
           # Fetch the artifacts for the current commit
           artifacts=$(gh api -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             repos/${{ github.repository }}/actions/artifacts | jq -c '[.artifacts[] | select(.workflow_run.head_sha == "${{ github.event.pull_request.head.sha }}")]')
+          
+          # Ensure valid JSON output
+          if [ -z "$artifacts" ] || [ "$artifacts" == "[]" ]; then
+            artifacts="[]"
+          fi
           echo "Extracted artifacts for the current commit: $artifacts"
           echo "artifacts=$artifacts" >> $GITHUB_OUTPUT
 
-  check-review-approval:
-    runs-on: ubuntu-latest
-    if: ${{ github.event.review.state == 'approved' }}  # Run only if the PR is approved
-    needs: get-artifacts
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
-
   terraform-apply:
-    needs: check-review-approval
-    if: ${{ needs.get-artifacts.outputs.artifacts != '[]' }} # Run only if there are artifacts
+    needs: get-artifacts
+    if: ${{ fromJson(needs.get-artifacts.outputs.artifacts) != [] }} # Only run if there are artifacts
     runs-on: ubuntu-latest
     strategy:
       matrix:
