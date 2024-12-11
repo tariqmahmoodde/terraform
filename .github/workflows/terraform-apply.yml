@@ -29,38 +29,50 @@ jobs:
             exit 1
           fi
 
-  parse-atlantis:
+  list-artifacts:
     needs: check-conditions
     if: needs.check-conditions.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     outputs:
-      projects: ${{ steps.parse.outputs.projects }}
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - name: Checkout Current Branch
-        uses: actions/checkout@v3
+      - name: Get Artifacts
+        uses: actions/github-script@v6
+        id: get-artifacts
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
+          script: |
+            const artifacts = await github.rest.actions.listArtifactsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+            const planArtifacts = artifacts.data.artifacts
+              .filter(a => a.name.endsWith('-plan'))
+              .map(a => {
+                // Split name format: workspace-parentdir-dir-plan
+                const parts = a.name.split('-');
+                const workspace = parts[0];
+                // Join all middle parts as the directory path
+                const dir = parts.slice(1, -1).join('/');
+                return { 
+                  workspace: workspace,
+                  dir: dir,
+                  artifact_name: a.name
+                };
+              });
+            return planArtifacts;
 
-      - name: Install Tools
+      - name: Set Matrix
+        id: set-matrix
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
-          pip install yq
-
-      - name: Parse Atlantis Config
-        id: parse
-        run: |
-          projects=$(yq '.projects' atlantis.yaml | jq -c '.')
-          echo "projects=$projects" >> $GITHUB_OUTPUT
+          ARTIFACTS='${{ steps.get-artifacts.outputs.result }}'
+          echo "matrix={\"include\":$ARTIFACTS}" >> $GITHUB_OUTPUT
 
   terraform-apply:
-    needs: [check-conditions, parse-atlantis]
+    needs: [check-conditions, list-artifacts]
     if: needs.check-conditions.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     strategy:
-      matrix:
-        project: ${{ fromJson(needs.parse-atlantis.outputs.projects) }}
+      matrix: ${{ fromJson(needs.list-artifacts.outputs.matrix) }}
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -79,22 +91,22 @@ jobs:
       - name: Download Plan File
         uses: actions/download-artifact@v3
         with:
-          name: tfplan-${{ matrix.project.dir }}-${{ matrix.project.workspace }}
-          path: ${{ matrix.project.dir }}
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.dir }}
 
       - name: Terraform Init
-        working-directory: ${{ matrix.project.dir }}
+        working-directory: ${{ matrix.dir }}
         run: terraform init
 
       - name: Select Workspace
-        if: ${{ matrix.project.workspace != null }}
-        working-directory: ${{ matrix.project.dir }}
+        if: ${{ matrix.workspace != 'default' }}
+        working-directory: ${{ matrix.dir }}
         run: |
-          terraform workspace select -or-create ${{ matrix.project.workspace }}
+          terraform workspace select -or-create ${{ matrix.workspace }}
 
       - name: Terraform Apply
         id: apply
-        working-directory: ${{ matrix.project.dir }}
+        working-directory: ${{ matrix.dir }}
         shell: bash
         run: |
           echo 'apply<<EOF' >> $GITHUB_OUTPUT
@@ -107,7 +119,7 @@ jobs:
           token: ${{ secrets.HUB_TOKEN }}
           issue-number: ${{ github.event.pull_request.number }}
           body: |
-            Terraform Apply for `Directory: ${{ matrix.project.dir }}` and `Workspace: ${{ matrix.project.workspace || 'default' }}`:
+            Terraform Apply for `Directory: ${{ matrix.dir }}` and `Workspace: ${{ matrix.workspace }}`:
 
             ```
             ${{ steps.apply.outputs.apply }}
