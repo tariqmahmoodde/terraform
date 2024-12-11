@@ -34,32 +34,36 @@ jobs:
         if: steps.changed-files.outputs.any_changed == 'true'
         run: |
           # Get unique directories containing changed files
-          DIRS=$(echo "${{ steps.changed-files.outputs.all_changed_files }}" | xargs -I {} dirname {} | sort -u)
+          DIRS=$(for file in ${{ steps.changed-files.outputs.all_changed_files }}; do dirname "$file"; done | sort -u)
           
           for dir in $DIRS; do
-            echo "Processing directory: $dir"
-            cd $GITHUB_WORKSPACE/$dir
-            
-            # Initialize Terraform
-            terraform init
-            
-            # Get all workspaces
-            WORKSPACES=$(terraform workspace list | tr -d '* ' | grep -v 'default')
-            
-            # Add default workspace to the list
-            WORKSPACES="default $WORKSPACES"
-            
-            for workspace in $WORKSPACES; do
-              echo "Applying changes in workspace: $workspace"
-              if [ "$workspace" != "default" ]; then
-                terraform workspace select $workspace
-              fi
+            if [ -d "$dir" ]; then
+              echo "Processing directory: $dir"
+              cd "$dir" || continue
               
-              # Run terraform apply
-              terraform apply -auto-approve
-            done
-            
-            cd $GITHUB_WORKSPACE
+              # Initialize Terraform
+              terraform init
+              
+              # Get all workspaces
+              WORKSPACES=$(terraform workspace list | tr -d '* ' | grep -v 'default')
+              
+              # Add default workspace to the list
+              WORKSPACES="default $WORKSPACES"
+              
+              for workspace in $WORKSPACES; do
+                echo "Applying changes in workspace: $workspace"
+                if [ "$workspace" != "default" ]; then
+                  terraform workspace select $workspace
+                fi
+                
+                # Run terraform apply
+                terraform apply -auto-approve
+              done
+              
+              cd "$GITHUB_WORKSPACE"
+            else
+              echo "Skipping non-existent directory: $dir"
+            fi
           done
 
       - name: Comment Result
