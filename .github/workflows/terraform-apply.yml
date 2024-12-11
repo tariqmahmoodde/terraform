@@ -1,139 +1,83 @@
-name: Terraform Apply
+name: Terraform Apply on PR
+
 on:
   pull_request_review:
-    types: [submitted]
+    types: [submitted] # Trigger when a PR review is submitted
 
 jobs:
-  check-conditions:
-    if: github.event.review.state == 'approved'
+  get-artifacts:
     runs-on: ubuntu-latest
     outputs:
-      proceed: ${{ steps.check.outputs.proceed }}
+      artifacts: ${{ steps.get-artifacts.outputs.artifacts }}
     steps:
-      - name: Check PR Status
-        id: check
-        run: |
-          # Get PR details using GitHub API
-          PR_INFO=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}")
-          
-          # Check if PR has conflicts
-          MERGEABLE=$(echo "$PR_INFO" | jq -r '.mergeable')
-          
-          if [ "$MERGEABLE" = "true" ]; then
-            echo "proceed=true" >> $GITHUB_OUTPUT
-            echo "PR is approved and has no conflicts"
-          else
-            echo "proceed=false" >> $GITHUB_OUTPUT
-            echo "PR has conflicts or is not mergeable"
-            exit 1
-          fi
-
-  list-artifacts:
-    needs: check-conditions
-    if: needs.check-conditions.outputs.proceed == 'true'
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-    steps:
-      - name: Get Last Successful Workflow Run
-        id: get-run
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const runs = await github.rest.actions.listWorkflowRuns({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'terraform-plan.yml',
-              status: 'success'
-            });
-            const latestRun = runs.data.workflow_runs[0];
-            return latestRun.id;
-
-      - name: Get Artifacts
-        uses: actions/github-script@v6
+      - name: List Artifacts for Current Commit
         id: get-artifacts
-        with:
-          script: |
-            const artifacts = await github.rest.actions.listArtifactsForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo
-            });
-            const planArtifacts = artifacts.data.artifacts
-              .filter(a => a.name.endsWith('-plan'))
-              .map(a => {
-                const parts = a.name.split('-');
-                const workspace = parts[0];
-                const workdir = parts.slice(1, -1).join('-'); // Join remaining parts as workdir
-                return { 
-                  workspace: workspace,
-                  workdir: workdir,
-                  artifact_name: a.name
-                };
-              });
-            return planArtifacts;
-
-      - name: Set Matrix
-        id: set-matrix
         run: |
-          ARTIFACTS='${{ steps.get-artifacts.outputs.result }}'
-          echo "matrix={\"include\":$ARTIFACTS}" >> $GITHUB_OUTPUT
+          # Fetch the artifacts for the current commit
+          artifacts=$(gh api -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            repos/${{ github.repository }}/actions/artifacts | jq -c '[.artifacts[] | select(.workflow_run.head_sha == "${{ github.event.pull_request.head.sha }}")]')
+          echo "Extracted artifacts for the current commit: $artifacts"
+          echo "artifacts=$artifacts" >> $GITHUB_OUTPUT
+
+  check-review-approval:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.review.state == 'approved' }}  # Run only if the PR is approved
+    needs: get-artifacts
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
 
   terraform-apply:
-    needs: [check-conditions, list-artifacts]
-    if: needs.check-conditions.outputs.proceed == 'true'
+    needs: check-review-approval
+    if: ${{ needs.get-artifacts.outputs.artifacts != '[]' }} # Run only if there are artifacts
     runs-on: ubuntu-latest
     strategy:
-      matrix: ${{ fromJson(needs.list-artifacts.outputs.matrix) }}
+      matrix:
+        artifact: ${{ fromJson(needs.get-artifacts.outputs.artifacts) }}
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
-      - name: Checkout Current Branch
+      - name: Checkout Code
         uses: actions/checkout@v3
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
+
+      - name: Download Artifact
+        run: |
+          # Download the artifact for this matrix item
+          artifact_name=${{ matrix.artifact.name }}
+          echo "Downloading artifact: $artifact_name"
+          gh api -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            repos/${{ github.repository }}/actions/artifacts/${{ matrix.artifact.id }}/zip \
+            > artifact.zip
+          unzip artifact.zip -d workspace
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.5.0
 
-      - name: Download Plan File
-        uses: actions/download-artifact@v3
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.workdir }}
+      - name: Extract Directory and Workspace
+        id: parse-artifact
+        run: |
+          artifact_name=${{ matrix.artifact.name }}
+          # Extract directory and workspace from artifact name
+          dir=$(echo "$artifact_name" | sed -E 's/^.*-([^/]+)-plan$/\1/')
+          workspace="prod" # Hardcoded as per the artifact name
+          echo "Working Directory: $dir"
+          echo "Workspace: $workspace"
+          echo "dir=$dir" >> $GITHUB_ENV
+          echo "workspace=$workspace" >> $GITHUB_ENV
 
       - name: Terraform Init
-        working-directory: ${{ matrix.workdir }}
+        working-directory: workspace/${{ env.dir }}
         run: terraform init
 
       - name: Select Workspace
-        working-directory: ${{ matrix.workdir }}
-        run: |
-          terraform workspace select -or-create ${{ matrix.workspace }}
+        working-directory: workspace/${{ env.dir }}
+        run: terraform workspace select ${{ env.workspace }}
 
       - name: Terraform Apply
-        id: apply
-        working-directory: ${{ matrix.workdir }}
+        working-directory: workspace/${{ env.dir }}
         shell: bash
         run: |
-          echo 'apply<<EOF' >> $GITHUB_OUTPUT
-          terraform apply -no-color -auto-approve tfplan 2>&1 >> $GITHUB_OUTPUT
-          echo 'EOF' >> $GITHUB_OUTPUT
-
-      - name: Comment Apply
-        uses: peter-evans/create-or-update-comment@v2
-        with:
-          token: ${{ secrets.HUB_TOKEN }}
-          issue-number: ${{ github.event.pull_request.number }}
-          body: |
-            Terraform Apply for `Directory: ${{ matrix.workdir }}` and `Workspace: ${{ matrix.workspace }}`:
-
-            ```
-            ${{ steps.apply.outputs.apply }}
-            ```
-
-            Apply completed.
+          terraform apply -no-color tfplan
