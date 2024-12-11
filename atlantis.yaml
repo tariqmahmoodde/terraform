@@ -7,3 +7,5 @@ projects:
 
   - dir: resources
     workspace: prod
+  
+  - dir: edge
