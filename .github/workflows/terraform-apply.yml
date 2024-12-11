@@ -14,13 +14,21 @@ jobs:
       - name: Get Artifacts
         id: get-artifacts
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.HUB_TOKEN }}
         run: |
-          # Get all artifacts for the PR
+          # Get the workflow run ID for the plan workflow
+          RUN_ID=$(gh api \
+            repos/${{ github.repository }}/actions/runs \
+            --jq '.workflow_runs[] | select(.head_sha == "'${{ github.event.pull_request.head.sha }}'" and .name == "Terraform Plan") | .id' \
+            | head -n1)
+          
+          echo "Found workflow run ID: $RUN_ID"
+          
+          # Get artifacts from this specific run
           ARTIFACTS=$(gh api \
-            repos/${{ github.repository }}/actions/artifacts \
+            repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts \
             --jq '.artifacts[] | select(.name | endswith("-plan"))')
-
+          
           # Create matrix JSON
           MATRIX="["
           echo "$ARTIFACTS" | while IFS= read -r artifact; do
