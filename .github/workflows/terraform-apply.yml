@@ -13,10 +13,11 @@ jobs:
     steps:
       - name: Get Artifacts
         id: get-artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           # Get all artifacts for the PR
           ARTIFACTS=$(gh api \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             repos/${{ github.repository }}/actions/artifacts \
             --jq '.artifacts[] | select(.name | endswith("-plan"))')
 
@@ -52,6 +53,7 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      GH_TOKEN: ${{ secrets.HUB_TOKEN }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -68,7 +70,6 @@ jobs:
           
           # Download and extract the artifact
           gh api \
-            -H "Authorization: token ${{ secrets.HUB_TOKEN }}" \
             repos/${{ github.repository }}/actions/artifacts/${{ matrix.artifact.id }}/zip \
             > artifact.zip
           unzip artifact.zip -d ${{ matrix.artifact.workdir }}
@@ -93,7 +94,7 @@ jobs:
         uses: peter-evans/create-or-update-comment@v2
         if: always()
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ github.token }}
           issue-number: ${{ github.event.pull_request.number }}
           body: |
             ### Terraform Apply Result
