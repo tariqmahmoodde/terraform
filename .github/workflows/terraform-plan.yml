@@ -23,7 +23,17 @@ jobs:
         id: parse
         run: |
           # Use yq to parse the atlantis.yaml file and extract the necessary data
-          projects=$(yq -o=json '.projects[]' atlantis.yaml | jq -c -s '.')
+          echo "Content of atlantis.yaml:"
+          cat atlantis.yaml
+          echo "---"
+          echo "Parsing output:"
+          # Convert to JSON array with both directory and workspace information
+          projects=$(yq eval -o=json '.projects | map({"dir": .dir, "workspace": .workspace})' atlantis.yaml)
+          echo "Parsed projects: $projects"
+          # Escape the JSON string for GitHub Actions
+          projects="${projects//'%'/'%25'}"
+          projects="${projects//$'\n'/'%0A'}"
+          projects="${projects//$'\r'/'%0D'}"
           echo "projects=$projects" >> $GITHUB_OUTPUT
 
   terraform-plan:
