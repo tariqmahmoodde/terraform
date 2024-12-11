@@ -59,7 +59,7 @@ jobs:
         if: ${{ matrix.project.workspace != null }}
         working-directory: ${{ matrix.project.dir }}
         run: |
-          terraform workspace select ${{ matrix.project.workspace }} || terraform workspace new ${{ matrix.project.workspace }}
+          terraform workspace select -or-create ${{ matrix.project.workspace }}
 
       - name: Terraform Plan
         id: plan

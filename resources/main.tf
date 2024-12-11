@@ -16,7 +16,7 @@ terraform {
 
 # Create a security group
 resource "aws_security_group" "example" {
-  name        = "terra-security-group"
+  name        = "${terraform.workspace}-terra-security-group"
   description = "Terraform security group"
   vpc_id      = var.vpc_id
 
