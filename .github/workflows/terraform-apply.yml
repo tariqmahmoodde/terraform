@@ -16,13 +16,19 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.HUB_TOKEN }}
         run: |
+          # Get PR details first
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          echo "PR Number: $PR_NUMBER"
+          
+          PR_SHA=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER --jq .head.sha)
+          echo "PR SHA: $PR_SHA"
+          
           # Get the workflow run ID for the plan workflow
           RUN_ID=$(gh api \
             repos/${{ github.repository }}/actions/runs \
-            --jq '.workflow_runs[] | select(.head_sha == "'${{ github.event.pull_request.head.sha }}'" and .name == "Terraform Plan" and .conclusion == "success") | .id' \
+            --jq '.workflow_runs[] | select(.head_sha == "'$PR_SHA'" and .name == "Terraform Plan" and .conclusion == "success") | .id' \
             | head -n1)
           
-          echo "PR Number: ${{ github.event.pull_request.number }}"
           echo "Found workflow run ID: $RUN_ID"
           
           if [ -z "$RUN_ID" ]; then
