@@ -19,10 +19,16 @@ jobs:
           # Get the workflow run ID for the plan workflow
           RUN_ID=$(gh api \
             repos/${{ github.repository }}/actions/runs \
-            --jq '.workflow_runs[] | select(.head_sha == "'${{ github.event.pull_request.head.sha }}'" and .name == "Terraform Plan") | .id' \
+            --jq '.workflow_runs[] | select(.head_sha == "'${{ github.event.pull_request.head.sha }}'" and .name == "Terraform Plan" and .conclusion == "success") | .id' \
             | head -n1)
           
+          echo "PR Number: ${{ github.event.pull_request.number }}"
           echo "Found workflow run ID: $RUN_ID"
+          
+          if [ -z "$RUN_ID" ]; then
+            echo "No successful Terraform Plan workflow run found"
+            exit 1
+          fi
           
           # Get artifacts from this specific run
           ARTIFACTS=$(gh api \
@@ -108,4 +114,4 @@ jobs:
             ### Terraform Apply Result
             - **Directory**: `${{ matrix.artifact.workdir }}`
             - **Workspace**: `${{ matrix.artifact.workspace }}`
-            - **Status**: ${{ steps.apply.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+            - **Status**: ${{ steps.apply.outcome == 'success' && ' Success' || ' Failed' }}
