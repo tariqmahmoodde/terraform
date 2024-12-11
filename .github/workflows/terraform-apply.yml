@@ -25,7 +25,7 @@ jobs:
     needs: get-artifacts
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
   terraform-apply:
     needs: check-review-approval
@@ -39,7 +39,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Download Artifact
         run: |
@@ -52,7 +52,7 @@ jobs:
           unzip artifact.zip -d workspace
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
+        uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.5.0
 
