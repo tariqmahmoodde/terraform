@@ -28,7 +28,10 @@ jobs:
           echo "projects=$projects" >> $GITHUB_OUTPUT
       
       - name: Debug Projects Output
-        run: echo "${{ steps.parse.outputs.projects }}"
+        run: |
+          echo "Projects raw output: '${{ steps.parse.outputs.projects }}'"
+          echo "Checking if it's valid JSON:"
+          echo '${{ steps.parse.outputs.projects }}' | jq
 
   terraform-plan:
     needs: parse-atlantis
