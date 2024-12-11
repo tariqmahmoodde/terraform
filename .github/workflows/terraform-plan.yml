@@ -23,7 +23,7 @@ jobs:
         id: parse
         run: |
           # Use yq to parse the atlantis.yaml file and extract the necessary data
-          projects=$(yq -o=json '.projects[]' atlantis.yaml | jq -c -s '.')
+          projects=$(yq '.projects' atlantis.yaml | jq -c '.')
           echo "Extracted projects: $projects"
           echo "projects=$projects" >> $GITHUB_OUTPUT
       
