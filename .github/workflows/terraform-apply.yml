@@ -55,24 +55,13 @@ jobs:
         id: get-artifacts
         with:
           script: |
-            const runId = '${{ steps.get-run.outputs.result }}';
             const artifacts = await github.rest.actions.listArtifactsForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo
             });
             const planArtifacts = artifacts.data.artifacts
-              .filter(a => a.name.endsWith('-plan'))
-              .map(a => {
-                const parts = a.name.split('-');
-                const workspace = parts[0];
-                const workdir = parts[1];
-                return { 
-                  workspace: workspace,
-                  workdir: workdir,
-                  artifact_name: a.name
-                };
-              });
-            return planArtifacts.filter(a => a.run_id === runId);
+              .filter(a => a.name.endsWith('-plan'));
+            return planArtifacts;
 
       - name: Set Matrix
         id: set-matrix
