@@ -5,11 +5,42 @@ on:
       - main
 
 jobs:
-  terraform-plan:
+  parse-atlantis:
     runs-on: ubuntu-latest
+    outputs:
+      projects: ${{ steps.parse.outputs.projects }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Install Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+          pip install yq
+
+      - name: Parse Atlantis Config
+        id: parse
+        run: |
+          # Use yq to parse the atlantis.yaml file and extract the necessary data
+          projects=$(yq '.projects' atlantis.yaml | jq -c '.')
+          echo "Extracted projects: $projects"
+          echo "projects=$projects" >> $GITHUB_OUTPUT
+      
+      # - name: Debug Projects Output
+      #   run: |
+      #     echo "Projects raw output: '${{ steps.parse.outputs.projects }}'"
+      #     echo "Checking if it's valid JSON:"
+      #     echo '${{ steps.parse.outputs.projects }}' | jq
+
+  terraform-plan:
+    needs: parse-atlantis
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project: ${{ fromJson(needs.parse-atlantis.outputs.projects) }}
     env:
-      TF_WORKSPACE: "default"
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}  # AWS Access Key
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
       - name: Checkout Code
@@ -21,30 +52,37 @@ jobs:
           terraform_version: 1.5.0
 
       - name: Terraform Init
+        working-directory: ${{ matrix.project.dir }}
         run: terraform init
+
+      - name: Select Workspace (If Specified)
+        if: ${{ matrix.project.workspace != null }}
+        working-directory: ${{ matrix.project.dir }}
+        run: |
+          terraform workspace select -or-create ${{ matrix.project.workspace }}
 
       - name: Terraform Plan
         id: plan
-        working-directory: ./
+        working-directory: ${{ matrix.project.dir }}
         shell: bash
         run: |
-          terraform plan -no-color -out=tfplan
+          echo 'plan<<EOF' >> $GITHUB_OUTPUT
+          terraform plan -no-color -out=tfplan >> $GITHUB_OUTPUT
+          echo 'EOF' >> $GITHUB_OUTPUT
 
       - name: Save Artifact
-        id: save-artifact
         uses: actions/upload-artifact@v3
         with:
-          name: ${{ github.event.pull_request.number }}-tf-plan
-          path: ./tfplan
+          name: "${{ matrix.project.workspace }}-${{ matrix.project.dir }}-plan"
+          path: ${{ matrix.project.dir }}/tfplan
 
       - name: Comment Plan
-        id: comment-plan
         uses: peter-evans/create-or-update-comment@v2
         with:
           token: ${{ secrets.HUB_TOKEN }}
           issue-number: ${{ github.event.pull_request.number }}
           body: |
-            Terraform Plan:
+            Terraform Plan for `Directory: ${{ matrix.project.dir }}` and `Workspace: ${{ matrix.project.workspace || 'default' }}`:
 
             ```
             ${{ steps.plan.outputs.plan }}
